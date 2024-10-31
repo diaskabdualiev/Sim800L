@@ -8,6 +8,7 @@ void signalIncomingCall();
 #define HOOK_PIN 33    // Пин для кнопки трубки (положил трубку)
 #define DIAL_PIN 25    // Пин для дискового переключателя
 #define MOTOR_PIN 27   // Пин для управления мотором через MOSFET
+#define BUZZER_PIN 23  // Пин для управления зуммером
 
 // Переменные для дискового переключателя
 int needToPrint = 0;
@@ -29,6 +30,7 @@ String dialedNumber = "";
 
 // Переменные для отслеживания состояния трубки
 bool callInProgress = false;
+bool dialingStarted = false;  // Флаг начала набора номера
 
 // Прототип функции
 void readDial();
@@ -48,6 +50,9 @@ unsigned long motorSignalStartTime = 0;
 int ringState = HIGH;
 unsigned long ringLowStartTime = 0;
 
+int buzzerChannel = 0; // Канал для PWM
+int buzzerResolution = 8; // Разрешение PWM (8 бит)
+int buzzerFrequency = 600; // Начальная частота зуммера (Гц)
 void setup() {
   // Инициализация монитора порта
   Serial.begin(115200);
@@ -70,6 +75,10 @@ void setup() {
   pinMode(DIAL_PIN, INPUT_PULLUP);
   pinMode(MOTOR_PIN, OUTPUT); // Настраиваем MOTOR_PIN как выход
   digitalWrite(MOTOR_PIN, LOW); // Выключаем мотор по умолчанию
+
+  ledcSetup(buzzerChannel, buzzerFrequency, buzzerResolution);
+  ledcAttachPin(BUZZER_PIN, buzzerChannel);
+  ledcWrite(buzzerChannel, 0); // Выключаем зуммер по умолчанию
 
   // Инициализация переменных дискового переключателя
   lastState = digitalRead(DIAL_PIN);
@@ -180,10 +189,14 @@ void loop() {
           callInProgress = true;
         } else {
           Serial.println("Ожидание набора номера...");
+          dialingStarted = false;  // Сбрасываем флаг начала набора
+          ledcWriteTone(buzzerChannel, buzzerFrequency);  // Включаем зуммер с заданной частотой
+          ledcWrite(buzzerChannel, 128); // Устанавливаем громкость (скважность)
         }
       } else {
         // Трубка положена.
         Serial.println("Трубка положена.");
+        ledcWriteTone(buzzerChannel, 0); // Выключаем зуммер
         if (callInProgress) {
           SIM800L.println("ATH"); // Завершаем вызов
           Serial.println("Завершаем вызов...");
@@ -216,6 +229,9 @@ void loop() {
       // Сброс набранного номера
       dialedNumber = "";
     }
+  } else {
+    // Если трубка не поднята или есть входящий вызов, зуммер выключен
+    ledcWriteTone(buzzerChannel, 0); // Выключаем зуммер
   }
 }
 
@@ -250,6 +266,11 @@ void readDial() {
         needToPrint = 1;
         Serial.print("Обнаружен импульс. Текущее количество: ");
         Serial.println(count);
+
+        if (!dialingStarted) {
+          dialingStarted = true;  // Устанавливаем флаг начала набора
+          ledcWriteTone(buzzerChannel, 0);  // Выключаем зуммер
+        }
       }
     }
   }
